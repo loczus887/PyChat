@@ -9,6 +9,7 @@ from .exceptions import (
     PCSPayloadTooLargeError,
     PCSRateLimitError,
     PCSUnknownTypeError,
+    PCSReplayAttackError,
 )
 from .protocol import (
     MAGIC,
@@ -27,6 +28,17 @@ from .protocol import (
     make_msg_broadcast,
     make_error,
 )
+from .security import (
+    hkdf_extract,
+    hkdf_expand,
+    derive_hmac_key,
+    hash_password,
+    verify_password,
+    generate_session_token,
+    create_server_tls_context,
+    create_client_tls_context,
+    ReplayProtector,
+)
 
 __all__ = [
     "MAGIC", "HEADER_SIZE", "HMAC_SIZE", "MAX_PAYLOAD_SIZE",
@@ -35,5 +47,8 @@ __all__ = [
     "make_auth_req", "make_auth_ok", "make_msg_send", "make_msg_broadcast", "make_error",
     "PCSError", "PCSFrameError", "PCSHMACError", "PCSAuthError",
     "PCSPayloadTooLargeError", "PCSRateLimitError", "PCSUnknownTypeError",
-    "PCSIncompleteFrameError",
+    "PCSIncompleteFrameError", "PCSReplayAttackError",
+    "hkdf_extract", "hkdf_expand", "derive_hmac_key",
+    "hash_password", "verify_password", "generate_session_token",
+    "create_server_tls_context", "create_client_tls_context", "ReplayProtector",
 ]
