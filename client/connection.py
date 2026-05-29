@@ -17,8 +17,6 @@ RECV_SIZE = 4096
 
 
 class PCSConnection:
-    """Zarządza połączeniem TCP/TLS z serwerem PCS."""
-
     def __init__(
         self,
         host: str,
@@ -36,7 +34,6 @@ class PCSConnection:
         self._connected = False
 
     def connect(self) -> None:
-        """Nawiązuje połączenie TCP i wykonuje handshake TLS 1.3."""
         if self._connected:
             return
 
@@ -45,7 +42,6 @@ class PCSConnection:
         if self.verify_cert:
             tls_ctx = create_client_tls_context(cafile=self.cafile)
         else:
-            # tryb testowy — bez weryfikacji certyfikatu serwera
             tls_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             tls_ctx.minimum_version = ssl.TLSVersion.TLSv1_3
             tls_ctx.check_hostname = False
@@ -57,7 +53,6 @@ class PCSConnection:
         logger.info("Połączono z %s:%d (TLS %s)", self.host, self.port, self._sock.version())
 
     def close(self) -> None:
-        """Zamyka połączenie."""
         self._connected = False
         if self._sock:
             try:
@@ -75,27 +70,25 @@ class PCSConnection:
         msg_id: int,
         hmac_key: bytes,
     ) -> None:
-        """Koduje i wysyła pojedynczą ramkę PCS."""
         if not self._connected or self._sock is None:
             raise ConnectionError("Brak połączenia z serwerem.")
 
         raw = encode_frame(msg_type, payload, msg_id, hmac_key)
         self._sock.sendall(raw)
-        logger.debug(
-            "Wysłano ramkę: type=%s msg_id=%d rozmiar=%dB",
-            msg_type.name, msg_id, len(raw),
-        )
+        logger.debug("Wysłano ramkę: type=%s msg_id=%d rozmiar=%dB", msg_type.name, msg_id, len(raw))
 
-    def receive_raw_frames(self) -> list[bytes]:
-        """
-        Czyta dostępne dane z socketu i zwraca listę kompletnych surowych ramek.
-        Używa FrameBuffer do obsługi partial read TCP.
-        Blokuje dopóki nie przyjdą dane.
-        """
+    def receive_raw_frames(self, timeout: float | None = None) -> list[bytes]:
         if not self._connected or self._sock is None:
             raise ConnectionError("Brak połączenia z serwerem.")
 
-        data = self._sock.recv(RECV_SIZE)
+        self._sock.settimeout(timeout)
+        try:
+            data = self._sock.recv(RECV_SIZE)
+        except socket.timeout:
+            return []
+        finally:
+            self._sock.settimeout(None)
+
         if not data:
             raise ConnectionError("Serwer zamknął połączenie.")
 
