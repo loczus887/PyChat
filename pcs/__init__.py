@@ -10,7 +10,6 @@ from .exceptions import (
     PCSPayloadTooLargeError,
     PCSRateLimitError,
     PCSUnknownTypeError,
-    PCSReplayAttackError,
 )
 from .protocol import (
     MAGIC,
