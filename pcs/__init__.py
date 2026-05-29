@@ -6,6 +6,7 @@ from .exceptions import (
     PCSFrameError,
     PCSHMACError,
     PCSIncompleteFrameError,
+    PCSReplayAttackError,
     PCSPayloadTooLargeError,
     PCSRateLimitError,
     PCSUnknownTypeError,
