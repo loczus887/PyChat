@@ -59,3 +59,7 @@ class PCSRateLimitError(PCSFrameError):
 
 class PCSIncompleteFrameError(PCSError):
     pass
+
+
+class PCSReplayAttackError(PCSError):
+    pass

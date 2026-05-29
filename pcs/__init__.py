@@ -6,6 +6,7 @@ from .exceptions import (
     PCSFrameError,
     PCSHMACError,
     PCSIncompleteFrameError,
+    PCSReplayAttackError,
     PCSPayloadTooLargeError,
     PCSRateLimitError,
     PCSUnknownTypeError,
@@ -36,4 +37,5 @@ __all__ = [
     "PCSError", "PCSFrameError", "PCSHMACError", "PCSAuthError",
     "PCSPayloadTooLargeError", "PCSRateLimitError", "PCSUnknownTypeError",
     "PCSIncompleteFrameError",
+    "PCSReplayAttackError",
 ]
