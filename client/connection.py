@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import socket
 import ssl
+import time
 
 from pcs import (
     FrameBuffer,
@@ -98,3 +99,28 @@ class PCSConnection:
     @property
     def is_connected(self) -> bool:
         return self._connected
+    
+
+    def reconnect(
+        self,
+        username: str,
+        password: str,
+        hmac_key: bytes,
+        max_retries: int = 5,
+        delay: float = 5.0,
+    ) -> str:
+        from client.auth import login, AuthError
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                self.close()
+                self.connect()
+                token = login(self, username, password, hmac_key)
+                logger.info("Reconnect udany (próba %d/%d)", attempt, max_retries)
+                return token
+            except (ConnectionError, OSError, AuthError) as exc:
+                logger.warning("Reconnect próba %d/%d nieudana: %s", attempt, max_retries, exc)
+                if attempt < max_retries:
+                    time.sleep(delay)
+
+        raise ConnectionError(f"Nie udało się ponownie połączyć po {max_retries} próbach.")
