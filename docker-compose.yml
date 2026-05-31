@@ -1,0 +1,21 @@
+services:
+  server:
+    build: .
+    container_name: pychat-server
+    ports:
+      - "9000:9000"
+    environment:
+      PYCHAT_HOST: "0.0.0.0"
+      PYCHAT_PORT: "9000"
+      PYCHAT_LOG_LEVEL: "INFO"
+      PYCHAT_LOG_FILE: "/app/data/logs/pychat.log"
+      PYCHAT_HMAC_SECRET: "pychat-default-secret"
+      PYCHAT_DEMO_USER: "alice"
+      PYCHAT_DEMO_PASSWORD: "secret"
+    volumes:
+      - pychat-data:/app/data
+      - ./certs:/app/data/certs
+    restart: unless-stopped
+
+volumes:
+  pychat-data:

@@ -41,3 +41,10 @@ server.db
 
 # Logs
 *.log
+logs/
+
+# Runtime data
+data/
+certs/
+pychat.db
+benchmarks/results.json
