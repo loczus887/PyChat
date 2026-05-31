@@ -1,7 +1,7 @@
 import argparse
 import sys
 
-from pcs import hash_password
+from pcs import hash_password_for_user
 from db.users import UserDB
 
 
@@ -16,7 +16,7 @@ def main():
     db = UserDB(args.db)
     db.init()
 
-    hashed = hash_password(args.password)
+    hashed = hash_password_for_user(args.password, args.username)
     ok = db.create_user(args.username, hashed, args.role)
     db.close()
 

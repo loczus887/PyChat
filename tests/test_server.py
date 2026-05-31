@@ -208,7 +208,7 @@ class TestMsgBroadcast:
                 await server.stop()
         run(go())
 
-    def test_msg_send_without_auth_returns_error(self):
+    def test_msg_send_without_auth_is_ignored(self):
         async def go():
             server = make_server()
             await server.start()
@@ -218,8 +218,9 @@ class TestMsgBroadcast:
                     MsgType.MSG_SEND,
                     make_msg_send(VALID_USER, "hello", "fake_token"),
                 )
-                frame = await client.recv()
-                assert frame.msg_type == MsgType.ERROR
+                with pytest.raises(asyncio.TimeoutError):
+                    await client.recv(timeout=0.5)
+                await client.close()
             finally:
                 await server.stop()
         run(go())

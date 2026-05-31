@@ -141,6 +141,8 @@ class TestMessageDelivery:
                         "message": f"msg{i}",
                         "session_token": sender.token,
                     })
+                    if (i + 1) % 10 == 0:
+                        await asyncio.sleep(1.05)
 
                 all_received = await asyncio.gather(*collectors)
 
@@ -200,6 +202,8 @@ class TestMessageDelivery:
                             "message": f"{client.username}-{i}",
                             "session_token": client.token,
                         })
+                        if (i + 1) % 10 == 0:
+                            await asyncio.sleep(1.05)
 
                 await asyncio.gather(*[send_burst(c) for c in clients])
                 await asyncio.sleep(0.2)
@@ -257,6 +261,8 @@ class TestLatency:
                     })
                     await receiver.recv()
                     latencies.append(time.monotonic() - t0)
+                    if (i + 1) % 10 == 0:
+                        await asyncio.sleep(1.05)
 
                 avg = sum(latencies) / len(latencies)
                 worst = max(latencies)

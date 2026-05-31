@@ -18,7 +18,7 @@ SESSION_TIMEOUT   = 60
 RECONNECT_TIMEOUT = 5
 MAX_AUTH_ATTEMPTS = 5
 AUTH_WINDOW       = 60
-MAX_REQUESTS_PER_SEC = 100
+MAX_REQUESTS_PER_SEC = 10
 
 _VALID_TRANSITIONS: dict[SessionState, set[SessionState]] = {
     SessionState.DISCONNECTED: {SessionState.CONNECTED},
@@ -36,6 +36,7 @@ class Session:
         self.username:      str | None = None
         self.session_token: str | None = None
         self.peer_address   = peer_address
+        self.hmac_key:       bytes | None = None
         self._last_msg_id   = 0
         self._last_activity = time.monotonic()
         self._created_at    = time.monotonic()

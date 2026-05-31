@@ -9,8 +9,10 @@ from pcs import (
     FrameBuffer,
     MsgType,
     create_client_tls_context,
+    derive_hmac_key_from_ssl,
     encode_frame,
 )
+from server.session import RECONNECT_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +26,19 @@ class PCSConnection:
         port: int,
         cafile: str | None = None,
         verify_cert: bool = True,
+        hmac_fallback: bytes | None = None,
+        hmac_from_tls: bool = False,
     ) -> None:
         self.host = host
         self.port = port
         self.cafile = cafile
         self.verify_cert = verify_cert
+        self._hmac_fallback = hmac_fallback
+        self._hmac_from_tls = hmac_from_tls
 
         self._sock: ssl.SSLSocket | None = None
         self._buffer = FrameBuffer()
+        self._hmac_key: bytes | None = None
         self._connected = False
 
     def connect(self) -> None:
@@ -49,9 +56,18 @@ class PCSConnection:
             tls_ctx.verify_mode = ssl.CERT_NONE
 
         self._sock = tls_ctx.wrap_socket(raw_sock, server_hostname=self.host)
+        self._hmac_key = derive_hmac_key_from_ssl(
+            self._sock, self._hmac_fallback, prefer_tls_export=self._hmac_from_tls,
+        )
         self._buffer.clear()
         self._connected = True
         logger.info("Połączono z %s:%d (TLS %s)", self.host, self.port, self._sock.version())
+
+    @property
+    def hmac_key(self) -> bytes:
+        if self._hmac_key is None:
+            raise RuntimeError("Brak klucza HMAC - najpierw connect().")
+        return self._hmac_key
 
     def close(self) -> None:
         self._connected = False
@@ -61,6 +77,7 @@ class PCSConnection:
             except OSError:
                 pass
             self._sock = None
+        self._hmac_key = None
         self._buffer.clear()
         logger.info("Połączenie zamknięte.")
 
@@ -69,12 +86,11 @@ class PCSConnection:
         msg_type: MsgType,
         payload: dict,
         msg_id: int,
-        hmac_key: bytes,
     ) -> None:
         if not self._connected or self._sock is None:
             raise ConnectionError("Brak połączenia z serwerem.")
 
-        raw = encode_frame(msg_type, payload, msg_id, hmac_key)
+        raw = encode_frame(msg_type, payload, msg_id, self.hmac_key)
         self._sock.sendall(raw)
         logger.debug("Wysłano ramkę: type=%s msg_id=%d rozmiar=%dB", msg_type.name, msg_id, len(raw))
 
@@ -105,22 +121,25 @@ class PCSConnection:
         self,
         username: str,
         password: str,
-        hmac_key: bytes,
-        max_retries: int = 5,
-        delay: float = 5.0,
+        timeout: float = RECONNECT_TIMEOUT,
     ) -> str:
         from client.auth import login, AuthError
 
-        for attempt in range(1, max_retries + 1):
+        deadline = time.monotonic() + timeout
+        attempt = 0
+        while time.monotonic() < deadline:
+            attempt += 1
             try:
                 self.close()
                 self.connect()
-                token = login(self, username, password, hmac_key)
-                logger.info("Reconnect udany (próba %d/%d)", attempt, max_retries)
+                token = login(self, username, password)
+                logger.info("Reconnect udany (próba %d)", attempt)
                 return token
             except (ConnectionError, OSError, AuthError) as exc:
-                logger.warning("Reconnect próba %d/%d nieudana: %s", attempt, max_retries, exc)
-                if attempt < max_retries:
-                    time.sleep(delay)
+                logger.warning("Reconnect próba %d nieudana: %s", attempt, exc)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(0.5, remaining))
 
-        raise ConnectionError(f"Nie udało się ponownie połączyć po {max_retries} próbach.")
+        raise ConnectionError(f"Nie udało się ponownie połączyć w ciągu {timeout}s.")

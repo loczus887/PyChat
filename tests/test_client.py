@@ -8,7 +8,7 @@ from pcs import (
     encode_frame, decode_frame, derive_hmac_key,
     make_msg_broadcast, make_error,
 )
-from pcs.exceptions import ErrorCode
+from pcs.exceptions import ErrorCode, PCSError
 
 from client.auth import login, AuthError, RateLimitError
 from client.session import PCSSession
@@ -20,14 +20,19 @@ class FakeConnection:
     def __init__(self, responses: list[bytes]) -> None:
         self._responses = responses
         self._sent = []
+        self._hmac_key = HMAC_KEY
 
-    def send_frame(self, msg_type, payload, msg_id, hmac_key):
+    def send_frame(self, msg_type, payload, msg_id):
         self._sent.append((msg_type, payload, msg_id))
 
     def receive_raw_frames(self, timeout=None):
         if self._responses:
             return [self._responses.pop(0)]
         return []
+
+    @property
+    def hmac_key(self):
+        return self._hmac_key
 
     @property
     def is_connected(self):
@@ -42,36 +47,43 @@ class TestLogin:
     def test_success_returns_token(self):
         raw = make_frame(MsgType.AUTH_OK, {"session_token": "abc123"})
         conn = FakeConnection([raw])
-        token = login(conn, "alice", "password", HMAC_KEY)
+        token = login(conn, "alice", "password")
         assert token == "abc123"
 
     def test_wrong_password_raises_auth_error(self):
         raw = make_frame(MsgType.ERROR, {"error_code": int(ErrorCode.ERR_AUTH)})
         conn = FakeConnection([raw])
         with pytest.raises(AuthError):
-            login(conn, "alice", "wrong", HMAC_KEY)
+            login(conn, "alice", "wrong")
 
     def test_rate_limit_raises_rate_limit_error(self):
         raw = make_frame(MsgType.ERROR, {"error_code": int(ErrorCode.ERR_RATE_LIMIT)})
         conn = FakeConnection([raw])
         with pytest.raises(RateLimitError):
-            login(conn, "alice", "password", HMAC_KEY)
+            login(conn, "alice", "password")
 
     def test_no_response_raises_auth_error(self):
         conn = FakeConnection([])
         with pytest.raises(AuthError):
-            login(conn, "alice", "password", HMAC_KEY)
+            login(conn, "alice", "password")
 
     def test_sends_correct_username(self):
         raw = make_frame(MsgType.AUTH_OK, {"session_token": "tok"})
         conn = FakeConnection([raw])
-        login(conn, "wiktoria", "haslo", HMAC_KEY)
+        login(conn, "wiktoria", "haslo")
         assert conn._sent[0][1]["username"] == "wiktoria"
+
+    def test_sends_password_hash_field(self):
+        raw = make_frame(MsgType.AUTH_OK, {"session_token": "tok"})
+        conn = FakeConnection([raw])
+        login(conn, "alice", "password")
+        assert "password_hash" in conn._sent[0][1]
+        assert conn._sent[0][1]["password_hash"].startswith("$2")
 
     def test_uses_msg_id_1(self):
         raw = make_frame(MsgType.AUTH_OK, {"session_token": "tok"})
         conn = FakeConnection([raw])
-        login(conn, "alice", "password", HMAC_KEY)
+        login(conn, "alice", "password")
         assert conn._sent[0][2] == 1
 
 
@@ -79,7 +91,7 @@ class TestPCSSession:
     def _make_session(self):
         conn = MagicMock()
         conn.receive_raw_frames.return_value = []
-        return PCSSession(conn, "alice", "token123", HMAC_KEY), conn
+        return PCSSession(conn, "alice", "token123"), conn
 
     def test_msg_id_increments_on_each_send(self):
         session, conn = self._make_session()
@@ -142,7 +154,8 @@ class TestPCSSession:
         frame = decode_frame(raw, HMAC_KEY)
 
         errors = []
-        session.handle_frame(frame, lambda s, t, ts: None, lambda c: errors.append(c), lambda: None)
+        with pytest.raises(PCSError):
+            session.handle_frame(frame, lambda s, t, ts: None, lambda c: errors.append(c), lambda: None)
         assert errors[0] == int(ErrorCode.ERR_HMAC)
 
 

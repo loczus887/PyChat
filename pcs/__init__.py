@@ -33,10 +33,13 @@ from .security import (
     hkdf_expand,
     derive_hmac_key,
     hash_password,
+    hash_password_for_user,
     verify_password,
     generate_session_token,
+    generate_self_signed_cert,
     create_server_tls_context,
     create_client_tls_context,
+    derive_hmac_key_from_ssl,
     ReplayProtector,
 )
 
@@ -48,7 +51,8 @@ __all__ = [
     "PCSError", "PCSFrameError", "PCSHMACError", "PCSAuthError",
     "PCSPayloadTooLargeError", "PCSRateLimitError", "PCSUnknownTypeError",
     "PCSIncompleteFrameError", "PCSReplayAttackError",
-    "hkdf_extract", "hkdf_expand", "derive_hmac_key",
-    "hash_password", "verify_password", "generate_session_token",
+    "hkdf_extract", "hkdf_expand", "derive_hmac_key", "derive_hmac_key_from_ssl",
+    "hash_password", "hash_password_for_user", "verify_password", "generate_session_token",
+    "generate_self_signed_cert",
     "create_server_tls_context", "create_client_tls_context", "ReplayProtector",
 ]

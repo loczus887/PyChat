@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 
-from pcs import MsgType, derive_hmac_key, hash_password
+from pcs import MsgType, derive_hmac_key, hash_password_for_user
 from pcs import encode_frame, decode_frame, FrameBuffer
 from pcs.exceptions import ErrorCode
 from db.users import UserDB
@@ -63,7 +63,7 @@ class TestFullAuthPipeline:
         async def go():
             db = UserDB(":memory:")
             db.init()
-            db.create_user("alice", hash_password(PASSWORD))
+            db.create_user("alice", hash_password_for_user(PASSWORD, "alice"))
 
             server = make_server_with_db(db)
             await server.start()
@@ -71,7 +71,7 @@ class TestFullAuthPipeline:
                 client = await connect(server.port)
                 await client.send(MsgType.AUTH_REQ, {
                     "username": "alice",
-                    "password_hash": PASSWORD,
+                    "password_hash": hash_password_for_user(PASSWORD, "alice"),
                 })
                 frame = await client.recv()
                 assert frame.msg_type == MsgType.AUTH_OK
@@ -86,7 +86,7 @@ class TestFullAuthPipeline:
         async def go():
             db = UserDB(":memory:")
             db.init()
-            db.create_user("alice", hash_password(PASSWORD))
+            db.create_user("alice", hash_password_for_user(PASSWORD, "alice"))
 
             server = make_server_with_db(db)
             await server.start()
@@ -115,7 +115,7 @@ class TestFullAuthPipeline:
                 client = await connect(server.port)
                 await client.send(MsgType.AUTH_REQ, {
                     "username": "ghost",
-                    "password_hash": PASSWORD,
+                    "password_hash": hash_password_for_user(PASSWORD, "ghost"),
                 })
                 frame = await client.recv()
                 assert frame.msg_type == MsgType.ERROR
@@ -129,8 +129,8 @@ class TestFullAuthPipeline:
         async def go():
             db = UserDB(":memory:")
             db.init()
-            db.create_user("alice", hash_password(PASSWORD))
-            db.create_user("bob", hash_password(PASSWORD))
+            db.create_user("alice", hash_password_for_user(PASSWORD, "alice"))
+            db.create_user("bob", hash_password_for_user(PASSWORD, "bob"))
 
             server = make_server_with_db(db)
             await server.start()
@@ -138,11 +138,17 @@ class TestFullAuthPipeline:
                 alice = await connect(server.port)
                 bob = await connect(server.port)
 
-                await alice.send(MsgType.AUTH_REQ, {"username": "alice", "password_hash": PASSWORD})
+                await alice.send(MsgType.AUTH_REQ, {
+                    "username": "alice",
+                    "password_hash": hash_password_for_user(PASSWORD, "alice"),
+                })
                 alice_ok = await alice.recv()
                 alice_token = alice_ok.payload["session_token"]
 
-                await bob.send(MsgType.AUTH_REQ, {"username": "bob", "password_hash": PASSWORD})
+                await bob.send(MsgType.AUTH_REQ, {
+                    "username": "bob",
+                    "password_hash": hash_password_for_user(PASSWORD, "bob"),
+                })
                 await bob.recv()
 
                 await alice.send(MsgType.MSG_SEND, {

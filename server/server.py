@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import datetime
 import logging
-import secrets
 import ssl
 import time
 from typing import Callable, Awaitable
@@ -12,6 +11,7 @@ from pcs import (
     MsgType, SessionState, FrameBuffer,
     encode_frame, decode_frame,
     make_auth_ok, make_msg_broadcast, make_error,
+    derive_hmac_key_from_ssl, generate_session_token,
 )
 from pcs.exceptions import (
     ErrorCode,
@@ -35,20 +35,24 @@ class PCSServer:
         hmac_key: bytes,
         verify_credentials: VerifyCredentials,
         ssl_context: ssl.SSLContext | None = None,
+        hmac_from_tls: bool = False,
     ) -> None:
         self._host = host
         self._port = port
         self._hmac_key = hmac_key
+        self._hmac_from_tls = hmac_from_tls
         self._verify_credentials = verify_credentials
         self._ssl_context = ssl_context
         self._session_manager = SessionManager()
         self._writers: dict[str, asyncio.StreamWriter] = {}
         self._out_counters: dict[str, int] = {}
         self._ip_auth_failures: dict[str, list[float]] = {}
+        self._ip_blocked_until: dict[str, float] = {}
         self._server: asyncio.Server | None = None
 
     _AUTH_FAILURE_LIMIT = 5
     _AUTH_FAILURE_WINDOW = 60
+    _IP_BLOCK_DURATION = 300
 
     async def start(self) -> None:
         self._server = await asyncio.start_server(
@@ -83,18 +87,22 @@ class PCSServer:
     ) -> None:
         peer = writer.get_extra_info("peername")
         session = self._session_manager.create(peer)
+        ssl_obj = writer.get_extra_info("ssl_object")
+        session.hmac_key = derive_hmac_key_from_ssl(
+            ssl_obj, self._hmac_key, prefer_tls_export=self._hmac_from_tls,
+        )
         self._writers[session.id] = writer
         self._out_counters[session.id] = 0
         buf = FrameBuffer()
 
-        logger.info("New connection from %s session=%s", peer, session.id)
+        logger.info("connect peer=%s session=%s active=%d", peer, session.id, self._session_manager.count)
 
         try:
             while True:
                 try:
                     data = await asyncio.wait_for(reader.read(4096), timeout=SESSION_TIMEOUT)
                 except asyncio.TimeoutError:
-                    logger.warning("Session timeout session=%s", session.id)
+                    logger.warning("timeout session=%s idle=%ds", session.id, SESSION_TIMEOUT)
                     await self._send_error(session, ErrorCode.ERR_TIMEOUT)
                     break
 
@@ -129,11 +137,15 @@ class PCSServer:
                 await writer.wait_closed()
             except Exception:
                 pass
-            logger.info("Session closed session=%s", session.id)
+            logger.info(
+                "disconnect session=%s user=%s active=%d",
+                session.id, session.username or "-", self._session_manager.count - 1,
+            )
 
     async def _process_frame(self, raw_frame: bytes, session) -> bool:
+        hmac_key = session.hmac_key or self._hmac_key
         try:
-            frame = decode_frame(raw_frame, self._hmac_key)
+            frame = decode_frame(raw_frame, hmac_key)
         except PCSHMACError:
             logger.error("Invalid HMAC session=%s peer=%s", session.id, session.peer_address)
             await self._send_error(session, ErrorCode.ERR_HMAC)
@@ -152,7 +164,7 @@ class PCSServer:
                 logger.error("Replay attack session=%s msg_id=%d", session.id, frame.msg_id)
                 return False
 
-        if frame.msg_type is not MsgType.BYE:
+        if frame.msg_type not in (MsgType.BYE, MsgType.AUTH_REQ):
             if not session.check_rate_limit():
                 await self._send_error(session, ErrorCode.ERR_RATE_LIMIT)
                 return False
@@ -198,18 +210,21 @@ class PCSServer:
             await self._send_error(session, ErrorCode.ERR_AUTH)
             return True
 
-        token = secrets.token_hex(16)
+        token = generate_session_token()
         session.authenticate(username, token)
         self._session_manager.register_token(session)
 
         await self._send(session, MsgType.AUTH_OK, make_auth_ok(token))
-        logger.info("Auth OK session=%s username=%s", session.id, username)
+        logger.info(
+            "auth_ok session=%s user=%s active=%d",
+            session.id, username, self._session_manager.count,
+        )
         return False
 
     async def _handle_msg_send(self, frame, session) -> bool:
         if session.state is not SessionState.READY:
-            await self._send_error(session, ErrorCode.ERR_FORMAT)
-            return True
+            logger.warning("MSG_SEND ignored - state=%s session=%s", session.state, session.id)
+            return False
 
         if frame.payload.get("session_token") != session.session_token:
             logger.warning("Invalid session token session=%s", session.id)
@@ -223,7 +238,14 @@ class PCSServer:
             timestamp,
         )
 
-        logger.debug("MSG_SEND from=%s size=%d", session.username, len(str(payload)))
+        msg_len = len(frame.payload.get("message", ""))
+        recipients = sum(
+            1 for s in self._session_manager.ready_sessions() if s.id != session.id
+        )
+        logger.info(
+            "msg_send user=%s bytes=%d recipients=%d session=%s",
+            session.username, msg_len, recipients, session.id,
+        )
         await self._broadcast(MsgType.MSG_BROADCAST, payload, exclude=session.id)
         return False
 
@@ -263,10 +285,17 @@ class PCSServer:
 
     def _encode_for(self, session, msg_type: MsgType, payload: dict) -> bytes:
         self._out_counters[session.id] += 1
-        return encode_frame(msg_type, payload, self._out_counters[session.id], self._hmac_key)
+        hmac_key = session.hmac_key or self._hmac_key
+        return encode_frame(msg_type, payload, self._out_counters[session.id], hmac_key)
 
     def _check_ip_auth_limit(self, ip: str) -> bool:
         now = time.monotonic()
+        blocked_until = self._ip_blocked_until.get(ip)
+        if blocked_until is not None:
+            if now < blocked_until:
+                return False
+            self._ip_blocked_until.pop(ip, None)
+            self._ip_auth_failures.pop(ip, None)
         failures = [t for t in self._ip_auth_failures.get(ip, []) if now - t < self._AUTH_FAILURE_WINDOW]
         self._ip_auth_failures[ip] = failures
         return len(failures) < self._AUTH_FAILURE_LIMIT
@@ -276,3 +305,5 @@ class PCSServer:
         failures = [t for t in self._ip_auth_failures.get(ip, []) if now - t < self._AUTH_FAILURE_WINDOW]
         failures.append(now)
         self._ip_auth_failures[ip] = failures
+        if len(failures) >= self._AUTH_FAILURE_LIMIT:
+            self._ip_blocked_until[ip] = now + self._IP_BLOCK_DURATION

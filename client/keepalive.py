@@ -41,7 +41,7 @@ class KeepAlive:
                 logger.debug("PING wysłany, czekam na PONG...")
 
                 if not self._pong_event.wait(timeout=PONG_TIMEOUT):
-                    logger.warning("Brak PONG — połączenie zerwane.")
+                    logger.warning("Brak PONG - połączenie zerwane.")
                     self.connection_lost = True
                     return
             except ConnectionError as exc:

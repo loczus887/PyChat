@@ -53,6 +53,14 @@ class TestBcrypt:
         assert verify_password(password, password_hash) is True
         assert verify_password("wrong-password", password_hash) is False
 
+    def test_hash_for_user_deterministic(self):
+        from pcs import hash_password_for_user
+        h1 = hash_password_for_user("secret", "alice")
+        h2 = hash_password_for_user("secret", "alice")
+        assert h1 == h2
+        assert h1.startswith("$2")
+        assert hash_password_for_user("secret", "bob") != h1
+
 
 class TestReplayProtection:
     def test_accepts_strictly_increasing_msg_id(self):

@@ -4,6 +4,7 @@ import logging
 import threading
 from datetime import datetime
 
+from pcs.exceptions import PCSError
 from client.auth import AuthError
 from client.connection import PCSConnection
 from client.keepalive import KeepAlive
@@ -27,17 +28,21 @@ class ChatCLI:
         port: int,
         username: str,
         password: str,
-        hmac_key: bytes,
+        hmac_fallback: bytes | None = None,
         cafile: str | None = None,
         verify_cert: bool = True,
+        keepalive: bool = True,
+        hmac_from_tls: bool = False,
     ) -> None:
         self._host = host
         self._port = port
         self._username = username
         self._password = password
-        self._hmac_key = hmac_key
+        self._hmac_fallback = hmac_fallback
         self._cafile = cafile
         self._verify_cert = verify_cert
+        self._keepalive_enabled = keepalive
+        self._hmac_from_tls = hmac_from_tls
 
         self._conn: PCSConnection | None = None
         self._session: PCSSession | None = None
@@ -49,10 +54,12 @@ class ChatCLI:
             self._host, self._port,
             cafile=self._cafile,
             verify_cert=self._verify_cert,
+            hmac_fallback=self._hmac_fallback,
+            hmac_from_tls=self._hmac_from_tls,
         )
         self._conn.connect()
-        token = login(self._conn, self._username, self._password, self._hmac_key)
-        self._session = PCSSession(self._conn, self._username, token, self._hmac_key)
+        token = login(self._conn, self._username, self._password)
+        self._session = PCSSession(self._conn, self._username, token)
 
     def _on_message(self, sender: str, text: str, timestamp: str) -> None:
         t = _format_time(timestamp)
@@ -75,16 +82,16 @@ class ChatCLI:
                     try:
                         self._keepalive.stop()
                         token = self._conn.reconnect(
-                            self._username, self._password, self._hmac_key
+                            self._username, self._password,
                         )
                         self._session = PCSSession(
-                            self._conn, self._username, token, self._hmac_key
+                            self._conn, self._username, token,
                         )
                         self._keepalive = KeepAlive(self._session)
                         self._keepalive.start()
                         print("\r[ponownie połączono]")
                     except ConnectionError:
-                        print("\r[nie udało się reconnect — rozłączono]")
+                        print("\r[nie udało się reconnect - rozłączono]")
                         self._running = False
                         return
 
@@ -99,17 +106,22 @@ class ChatCLI:
                     print("\r[połączenie zerwane]")
                     self._running = False
                 return
+            except PCSError:
+                self._running = False
+                return
 
     def run(self) -> None:
         self._connect_and_login()
-        self._keepalive = KeepAlive(self._session)
-        self._keepalive.start()
+        if self._keepalive_enabled:
+            self._keepalive = KeepAlive(self._session)
+            self._keepalive.start()
         self._running = True
 
         recv_thread = threading.Thread(target=self._receive_loop, daemon=True)
         recv_thread.start()
 
-        print(f"[połączono jako {self._username}] Wpisz wiadomość lub Ctrl+C aby wyjść.")
+        ka_info = "" if self._keepalive_enabled else " [keep-alive wyłączony]"
+        print(f"[połączono jako {self._username}{ka_info}] Wpisz wiadomość lub Ctrl+C aby wyjść.")
 
         try:
             while self._running:
