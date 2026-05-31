@@ -117,6 +117,9 @@ class ChatCLI:
                     text = input("> ")
                     if text.strip():
                         self._session.send_message(text)
+                        now = datetime.now().strftime("%H:%M")
+                        print(f"\r[{now}] {self._username}: {text}")
+                        print("> ", end="", flush=True)
                 except EOFError:
                     break
         except KeyboardInterrupt:

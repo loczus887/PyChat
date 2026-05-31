@@ -29,6 +29,7 @@ def main() -> None:
     password = getpass.getpass("Hasło: ")
 
     try:
+        print(f"Łączenie z {args.host}:{args.port}...")
         cli = ChatCLI(
             host=args.host,
             port=args.port,
