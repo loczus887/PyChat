@@ -10,6 +10,7 @@ from client.connection import PCSConnection
 from client.keepalive import KeepAlive
 from client.session import PCSSession
 from client.auth import login
+from pcs import MsgType, decode_frame, make_msg_send, make_error, CRITICAL_ERRORS
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,8 @@ class ChatCLI:
 
     def _on_error(self, code) -> None:
         print(f"\r[błąd serwera] kod={code}")
-        self._running = False
+        if code in CRITICAL_ERRORS:
+            self._running = False
 
     def _on_pong(self) -> None:
         if self._keepalive:
